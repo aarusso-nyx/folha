@@ -1,23 +1,10 @@
-CREATE TABLE audit.auditable (    
-    user_id     INTEGER NOT NULL,
-
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    created_by INTEGER NOT NULL,
- 
-    revoked_at TIMESTAMP,
-    revoked_by INTEGER,
-
-    active     BOOLEAN NULL DEFAULT TRUE    
-);
-
-
 -- Abstract base class for all tables with inicio-fim
-DROP TABLE IF EXISTS audit.periodo CASCADE;
-CREATE TABLE audit.periodo (
+DROP TABLE IF EXISTS folha.periodo CASCADE;
+CREATE TABLE folha.periodo (
     inicio     DATE NOT NULL,
     fim        DATE,
 
-    CHECK ((fim IS NULL) OR (inicio < fim))
+    CHECK (fim IS NULL) OR (inicio < fim)
 ) INHERITS (audit.auditable);
 
 -- ----------------------------------------------------------------------------

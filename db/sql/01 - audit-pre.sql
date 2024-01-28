@@ -1,6 +1,11 @@
 CREATE SCHEMA audit;
 
+CREATE ROLE folha_audit_role;
 
+----------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------
+DROP TABLE IF EXISTS audit.auditable CASCADE;
 CREATE TABLE audit.auditable (    
     user_id     INTEGER NOT NULL,
 
@@ -13,6 +18,8 @@ CREATE TABLE audit.auditable (
     active     BOOLEAN NULL DEFAULT TRUE    
 );
 
+ALTER TABLE audit.auditable OWNER TO folha_audit_role;
+REVOKE ALL ON audit.auditable FROM PUBLIC;
 
 ----------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------
@@ -38,6 +45,10 @@ BEGIN
 
     RETURN ' WHERE ' || array_to_string(keys, ' AND ') || ';';
 END;
+$$ LANGUAGE plpgsql;
+
+ALTER FUNCTION audit.buildWhere(TEXT, TEXT, RECORD) OWNER TO folha_audit_role;
+REVOKE ALL ON FUNCTION audit.buildWhere(TEXT, TEXT, RECORD) FROM PUBLIC;
 
 ----------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------
@@ -64,6 +75,12 @@ BEGIN
     RETURN NEW;
 END;
 
+$$
+LANGUAGE plpgsql;
+
+ALTER FUNCTION audit.track_changes() OWNER TO folha_audit_role;
+REVOKE ALL ON FUNCTION audit.track_changes() FROM PUBLIC;
+
 ----------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------
 -- DELETE by setting status to -1
@@ -79,3 +96,33 @@ END;
 $$
 LANGUAGE plpgsql;
 
+ALTER FUNCTION audit.deactivate() OWNER TO folha_audit_role;
+REVOKE ALL ON FUNCTION audit.deactivate() FROM PUBLIC;
+
+----------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE audit.audit_table(schema_name name, table_name name) AS $$
+DECLARE
+    source_table    TEXT := quote_ident('audit') || quote_ident(schema_name) || '_' || quote_ident(table_name);
+    target_table    TEXT := quote_ident(schema_name) || '.' || quote_ident(table_name);
+BEGIN
+    -- Create a Mirror table on audit schema
+    EXECUTE 'CREATE TABLE ' || source_table || ' (LIKE ' || target_table || ' INCLUDING ALL)';
+    
+    -- Handle permissions
+    EXECUTE 'REVOKE DELETE ON ' || source_table || ' FROM public';
+    EXECUTE 'GRANT DELETE ON ' || source_table || ' TO folha_audit_role';
+
+    -- Install triggers    
+    EXECUTE 'CREATE TRIGGER track_changes_' || schema_name || '_' || table_name ||
+            ' BEFORE INSERT OR UPDATE OR DELETE ON ' || target_table ||
+            ' FOR EACH ROW EXECUTE PROCEDURE audit.track_changes()';
+
+    EXECUTE 'CREATE TRIGGER deactivate_' || schema_name || '_' || table_name ||
+            ' AFTER UPDATE OF active ON ' || target_table ||
+            ' FOR EACH ROW EXECUTE PROCEDURE audit.deactivate()';
+END;
+$$ LANGUAGE plpgsql;
+
+ALTER PROCEDURE audit.audit_table(name, name) OWNER TO folha_audit_role;
+REVOKE ALL ON PROCEDURE audit.audit_table(name, name) FROM PUBLIC;
